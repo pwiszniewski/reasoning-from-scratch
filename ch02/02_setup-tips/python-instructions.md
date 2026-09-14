@@ -19,6 +19,8 @@ I used Python 3.12 for this book. However, newer versions like Python 3.13 and 3
 python --version
 ```
 
+For the [Appendix G chat interface](../../chG/01_main-chapter-code), use Python 3.13 because Chainlit currently does not support Python 3.14.
+
 If you are using Python 3.9 or older, consider installing the latest from [python.org](https://www.python.org/downloads/) or using a tool like [`pyenv`](https://github.com/pyenv/pyenv) to manage versions. However, if you are installing a new Python version, please make sure that it is supported by PyTorch by checking the recommendation on the [official PyTorch website](https://pytorch.org/get-started/locally/). PyTorch typically lags a few months behind the latest Python release, so newly released Python versions are not supported or recommended immediately.
 
 To install new packages, as needed, (for example, PyTorch and Jupyter Lab), run:
@@ -90,9 +92,9 @@ Next, navigate into this folder, e.g., on Linux and MacOS:
 cd reasoning-from-scratch
 ```
 
-Then, since this folder contains a `pyproject.toml` file and a `.python-version` file, you are already good to go: `uv` will automatically create a (by default invisible) virtual environment folder (`.venv`) for this `reasoning-from-scratch` project into which it installs all the dependencies the first time you run a script or open Jupyter Lab.
+The `pyproject.toml` file lists the required packages. `uv` will automatically create a (by default invisible) virtual environment folder (`.venv`) for this `reasoning-from-scratch` project into which it installs all the dependencies the first time you run a script or open Jupyter Lab.
 
-The `.python-version` file currently pins Python 3.13 for the local `uv` environment. This avoids accidentally selecting a Python version that is newer than the PyTorch releases tested with this project. If `uv` uses a different Python version, you can reset the local pin by running:
+The repository does not include a `.python-version` file. To use Python 3.13 for your local `uv` environment, you can create a pin by running:
 
 ```bash
 uv python pin 3.13
@@ -123,6 +125,21 @@ Python scripts can be run via:
 
 ```bash
 uv run python script.py
+```
+
+The committed `uv.lock` file uses PyTorch 2.10.0, which is the version originally used for the code in this book. Therefore, regular `uv run` commands use PyTorch 2.10.0 by default. The lockfile works across the supported operating systems because `uv` selects the appropriate packages for each platform.
+
+The `pyproject.toml` file also allows newer PyTorch 2.x versions. To update PyTorch in the local lockfile, run:
+
+```bash
+uv lock --upgrade-package torch
+```
+
+This only needs to be done once. Subsequent `uv run` commands use the updated version. Note that this modifies the local `uv.lock` file. To return to the version included with the repository, run:
+
+```bash
+git restore uv.lock
+uv sync
 ```
 
 

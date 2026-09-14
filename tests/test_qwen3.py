@@ -8,7 +8,6 @@ import reasoning_from_scratch.utils as utils_mod
 from reasoning_from_scratch.qwen3 import (
     compute_rope_params,
     apply_rope,
-    QWEN_CONFIG_06_B,
     RMSNorm,
     Qwen3Model,
     Qwen3Tokenizer,
@@ -24,7 +23,6 @@ from reasoning_from_scratch.utils import download_file
 
 import importlib
 import os
-import platform
 import requests
 import shutil
 import tempfile
@@ -81,6 +79,8 @@ class DummyDownloadResponse:
 
 
 transformers_installed = importlib.util.find_spec("transformers") is not None
+run_real_download = os.environ.get("RUN_REAL_DOWNLOAD_TESTS", "0") == "1"
+skip_expensive = os.environ.get("SKIP_EXPENSIVE", "0") == "1"
 
 
 @pytest.mark.skipif(not transformers_installed, reason="transformers not installed")
@@ -156,8 +156,11 @@ def test_rmsnorm_equivalence():
     torch.testing.assert_close(out1, out2, atol=1e-5, rtol=1e-5)
 
 
-@pytest.mark.skipif(not transformers_installed, reason="transformers not installed")
-def test_tokenizer_equivalence():
+@pytest.mark.skipif(
+    skip_expensive or not run_real_download or not transformers_installed,
+    reason="Set RUN_REAL_DOWNLOAD_TESTS=1 and unset SKIP_EXPENSIVE to run real download tests",
+)
+def test_tokenizer_equivalence_real_download():
     from transformers import AutoTokenizer
 
     prompt = "Give me a short introduction to large language models."
@@ -339,47 +342,46 @@ def test_download_file_cached_file_returns_existing_path(tmp_path, monkeypatch):
     assert calls == ["https://primary.example.com/tokenizer-base.json"]
 
 
-@pytest.mark.parametrize("ModelClass", [Qwen3Model])
-@pytest.mark.parametrize("generate_fn", [generate_text_basic, generate_text_basic_cache,])
-def test_model(ModelClass, qwen3_weights_path, generate_fn):
+def check_model_generation(ModelClass, generate_fn):
+    cfg = {
+        "vocab_size": 32,
+        "context_length": 8,
+        "emb_dim": 16,
+        "n_heads": 4,
+        "n_layers": 2,
+        "hidden_dim": 32,
+        "head_dim": 4,
+        "qk_norm": True,
+        "n_kv_groups": 2,
+        "rope_base": 1_000_000.0,
+        "dtype": torch.float32,
+    }
+    model = ModelClass(cfg)
 
-    posix_expected = torch.tensor([[68082, 101072, 46055, 45748, 13108]])
-    windows_expected = torch.tensor([[68082, 101567, 139559, 136628, 115975]])
-    osname = platform.system()
-    table = {"Linux": posix_expected, "Darwin": posix_expected, "Windows": windows_expected}
-    expected = table[osname]
+    # Avoid random initialization because seeded values can change across
+    # PyTorch versions.
+    with torch.no_grad():
+        for param_idx, param in enumerate(model.parameters()):
+            values = torch.arange(param.numel(), dtype=torch.float32)
+            values = ((values + 7 * param_idx) % 23 - 11) / 32
+            param.copy_(values.reshape_as(param))
 
-    torch.manual_seed(123)
-    torch.set_num_threads(1)
-    torch.use_deterministic_algorithms(True)
-
-    torch.manual_seed(123)
-    model = ModelClass(QWEN_CONFIG_06_B)
-    model.load_state_dict(torch.load(qwen3_weights_path / "qwen3_test_weights.pt"))
     model.eval()
 
-    tokenizer = Qwen3Tokenizer(
-        tokenizer_file_path=qwen3_weights_path / "tokenizer-base.json",
-        add_generation_prompt=False,
-        add_thinking=False
-    )
-
-    prompt = "Give me a short introduction to large language models."
-    input_token_ids = tokenizer.encode(prompt)
-    input_token_ids = torch.tensor([input_token_ids])
-
-    # print(f"\n{50*'='}\n{22*' '}IN\n{50*'='}")
-    # print("\nInput text:", prompt)
-    # print("Encoded input text:", input_token_ids)
-    # print("encoded_tensor.shape:", input_token_ids.shape)
-
+    input_token_ids = torch.tensor([[1, 2, 3]])
+    expected = torch.tensor([[15, 11, 1, 1, 1]])
     out = generate_fn(
         model=model,
         token_ids=input_token_ids.clone(),
         max_new_tokens=5,
     )
-    # print("Tested output:", out)
+
     assert torch.equal(out, expected)
+
+
+@pytest.mark.parametrize("generate_fn", [generate_text_basic, generate_text_basic_cache])
+def test_model(generate_fn):
+    check_model_generation(Qwen3Model, generate_fn)
 
 
 @torch.inference_mode()
